@@ -3,10 +3,11 @@ const jwt = require("jsonwebtoken");
 const rateLimit = require("express-rate-limit");
 const { prisma } = require("../lib/prisma");
 const { isValidMauritanianPhone, isValidName } = require("../lib/validators");
-const { sendWhatsAppOtp } = require("../lib/whatsapp");
+const { sendSmsOtp } = require("../lib/sms");
 
 const router = express.Router();
 
+// حماية من إساءة الاستخدام: بحد أقصى 5 طلبات رمز تحقق لكل رقم كل 15 دقيقة
 const otpRequestLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 5,
@@ -15,13 +16,14 @@ const otpRequestLimiter = rateLimit({
 });
 
 function generateOtp() {
-  return String(Math.floor(1000 + Math.random() * 9000));
+  return String(Math.floor(1000 + Math.random() * 9000)); // رمز من 4 أرقام
 }
 
 function issueToken(userId) {
   return jwt.sign({ userId }, process.env.JWT_SECRET, { expiresIn: "30d" });
 }
 
+// POST /auth/request-otp  { phone, purpose: "SIGNUP" | "LOGIN" }
 router.post("/request-otp", otpRequestLimiter, async (req, res) => {
   const { phone, purpose = "SIGNUP" } = req.body;
 
@@ -40,17 +42,18 @@ router.post("/request-otp", otpRequestLimiter, async (req, res) => {
   }
 
   const code = generateOtp();
-  const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
+  const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // صالح 5 دقائق
 
   await prisma.otpCode.create({
     data: { phone: digits, code, purpose, expiresAt, userId: existingUser?.id },
   });
 
-  await sendWhatsAppOtp(digits, code);
+  await sendSmsOtp(digits, code); // الاستخدام الوحيد لإرسال SMS بكامل التطبيق — لحظة فتح الحساب فقط
 
   res.json({ ok: true, expiresInSeconds: 300 });
 });
 
+// POST /auth/verify-otp  { phone, code, purpose }
 router.post("/verify-otp", async (req, res) => {
   const { phone, code, purpose = "SIGNUP" } = req.body;
   const digits = String(phone || "").replace(/\D/g, "");
@@ -72,9 +75,11 @@ router.post("/verify-otp", async (req, res) => {
     return res.json({ ok: true, token, user: { id: user.id, name: user.name, whatsappPhone: user.whatsappPhone } });
   }
 
+  // بالنسبة للتسجيل: التحقق نجح، بس الحساب لسا ما انبنى — الخطوات التالية (حساب دفع + هوية + اسم) بتكمّل بـ complete-signup
   res.json({ ok: true, phoneVerified: true });
 });
 
+// POST /auth/complete-signup  { phone, name, paymentAccounts: [{methodId, phone}], kycDocumentUrl }
 router.post("/complete-signup", async (req, res) => {
   const { phone, name, paymentAccounts, kycDocumentUrl } = req.body;
   const digits = String(phone || "").replace(/\D/g, "");
@@ -92,6 +97,7 @@ router.post("/complete-signup", async (req, res) => {
     return res.status(400).json({ error: "يجب رفع وثيقة الهوية" });
   }
 
+  // تأكيد إن رقم الهاتف تم التحقق منه فعليًا خلال آخر 30 دقيقة قبل إنشاء الحساب
   const recentVerified = await prisma.otpCode.findFirst({
     where: { phone: digits, purpose: "SIGNUP", verifiedAt: { gt: new Date(Date.now() - 30 * 60 * 1000) } },
     orderBy: { verifiedAt: "desc" },
