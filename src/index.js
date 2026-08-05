@@ -17,7 +17,7 @@ app.use("/auth", authRoutes);
 app.use("/orders", require("./routes/orders"));
 app.use("/payment-accounts", require("./routes/payment-accounts"));
 app.use("/support", require("./routes/support"));
-// app.use("/admin", require("./routes/admin"));
+app.use("/admin", require("./routes/admin"));
 
 app.use((req, res) => res.status(404).json({ error: "المسار غير موجود" }));
 
