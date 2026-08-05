@@ -14,8 +14,8 @@ app.get("/health", (req, res) => res.json({ ok: true, service: "wasla-backend" }
 app.use("/auth", authRoutes);
 
 // الخطوات التالية (تُبنى تباعًا):
-// app.use("/orders", require("./routes/orders"));
-// app.use("/payment-accounts", require("./routes/payment-accounts"));
+app.use("/orders", require("./routes/orders"));
+app.use("/payment-accounts", require("./routes/payment-accounts"));
 // app.use("/support", require("./routes/support"));
 // app.use("/admin", require("./routes/admin"));
 
