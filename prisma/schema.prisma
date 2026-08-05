@@ -1,0 +1,159 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                String    @id @default(uuid())
+  whatsappPhone     String    @unique @map("whatsapp_phone")
+  name              String?
+  documentsVerified Boolean   @default(false) @map("documents_verified")
+  kycDocumentUrl    String?   @map("kyc_document_url")
+  role              UserRole  @default(CUSTOMER)
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  paymentAccounts PaymentAccount[]
+  savedAccounts   SavedServiceAccount[]
+  orders          Order[]
+  supportTickets  SupportTicket[]
+  otpCodes        OtpCode[]
+
+  @@map("users")
+}
+
+enum UserRole {
+  CUSTOMER
+  ADMIN
+}
+
+model OtpCode {
+  id        String   @id @default(uuid())
+  userId    String?  @map("user_id")
+  phone     String
+  code      String
+  purpose   OtpPurpose @default(SIGNUP)
+  expiresAt DateTime @map("expires_at")
+  verifiedAt DateTime? @map("verified_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User? @relation(fields: [userId], references: [id])
+
+  @@index([phone, code])
+  @@map("otp_codes")
+}
+
+enum OtpPurpose {
+  SIGNUP
+  LOGIN
+}
+
+model PaymentAccount {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  methodId  String   @map("method_id")
+  phone     String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, methodId])
+  @@map("payment_accounts")
+}
+
+model SavedServiceAccount {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  serviceId String   @map("service_id")
+  accountId String   @map("account_id")
+  network   String?
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, serviceId])
+  @@map("saved_service_accounts")
+}
+
+model Order {
+  id           String      @id @default(uuid())
+  orderNumber  Int         @unique @default(autoincrement()) @map("order_number")
+  userId       String      @map("user_id")
+  status       OrderStatus @default(PROCESSING)
+  totalMru     Int         @map("total_mru")
+  expiresAt    DateTime?   @map("expires_at")
+  createdAt    DateTime    @default(now()) @map("created_at")
+  updatedAt    DateTime    @updatedAt @map("updated_at")
+
+  user           User             @relation(fields: [userId], references: [id])
+  items          OrderItem[]
+  paymentProof   PaymentProof?
+  supportTickets SupportTicket[]
+
+  @@index([userId])
+  @@map("orders")
+}
+
+enum OrderStatus {
+  PENDING_PAYMENT
+  PROCESSING
+  ACTIVE
+  EXPIRED
+  CANCELLED
+}
+
+model OrderItem {
+  id          String  @id @default(uuid())
+  orderId     String  @map("order_id")
+  serviceId   String  @map("service_id")
+  planId      String  @map("plan_id")
+  qty         Int     @default(1)
+  unitPriceMru Int    @map("unit_price_mru")
+  accountId   String? @map("account_id")
+  network     String?
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@map("order_items")
+}
+
+model PaymentProof {
+  id                 String    @id @default(uuid())
+  orderId            String    @unique @map("order_id")
+  methodId           String    @map("method_id")
+  payerPhone         String    @map("payer_phone")
+  bankConfirmCode    String?   @map("bank_confirm_code")
+  verifiedByAdminId  String?   @map("verified_by_admin_id")
+  verifiedAt         DateTime? @map("verified_at")
+  createdAt          DateTime  @default(now()) @map("created_at")
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@map("payment_proofs")
+}
+
+model SupportTicket {
+  id        String       @id @default(uuid())
+  userId    String       @map("user_id")
+  orderId   String?      @map("order_id")
+  message   String
+  status    TicketStatus @default(OPEN)
+  reply     String?
+  createdAt DateTime     @default(now()) @map("created_at")
+  repliedAt DateTime?    @map("replied_at")
+
+  user  User   @relation(fields: [userId], references: [id])
+  order Order? @relation(fields: [orderId], references: [id])
+
+  @@index([userId])
+  @@map("support_tickets")
+}
+
+enum TicketStatus {
+  OPEN
+  RESOLVED
+}
