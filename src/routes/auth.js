@@ -123,4 +123,35 @@ router.post("/complete-signup", async (req, res) => {
   res.status(201).json({ ok: true, token, user: { id: user.id, name: user.name, whatsappPhone: user.whatsappPhone } });
 });
 
+// مسار مؤقت لإنشاء أول حساب أدمن يدويًا — يُحذف فورًا بعد الاستخدام لأسباب أمنية
+router.get("/bootstrap-admin", async (req, res) => {
+  const { secret, phone, name } = req.query;
+
+  if (secret !== "wasla-setup-7f3k9x2m") {
+    return res.status(403).json({ error: "غير مسموح" });
+  }
+
+  const digits = String(phone || "").replace(/\D/g, "");
+  if (!digits) {
+    return res.status(400).json({ error: "رقم الهاتف مطلوب" });
+  }
+
+  const existing = await prisma.user.findUnique({ where: { whatsappPhone: digits } });
+  if (existing) {
+    return res.status(409).json({ error: "هذا الرقم مسجّل مسبقًا" });
+  }
+
+  const user = await prisma.user.create({
+    data: {
+      whatsappPhone: digits,
+      name: name || "Admin",
+      documentsVerified: true,
+      role: "ADMIN",
+    },
+  });
+
+  const token = issueToken(user.id);
+  res.json({ ok: true, token, user: { id: user.id, name: user.name, whatsappPhone: user.whatsappPhone, role: user.role } });
+});
+
 module.exports = router;
