@@ -75,7 +75,6 @@ router.post("/verify-otp", async (req, res) => {
     return res.json({ ok: true, token, user: { id: user.id, name: user.name, whatsappPhone: user.whatsappPhone } });
   }
 
-  // بالنسبة للتسجيل: التحقق نجح، بس الحساب لسا ما انبنى — الخطوات التالية (حساب دفع + هوية + اسم) بتكمّل بـ complete-signup
   res.json({ ok: true, phoneVerified: true });
 });
 
@@ -97,7 +96,6 @@ router.post("/complete-signup", async (req, res) => {
     return res.status(400).json({ error: "يجب رفع وثيقة الهوية" });
   }
 
-  // تأكيد إن رقم الهاتف تم التحقق منه فعليًا خلال آخر 30 دقيقة قبل إنشاء الحساب
   const recentVerified = await prisma.otpCode.findFirst({
     where: { phone: digits, purpose: "SIGNUP", verifiedAt: { gt: new Date(Date.now() - 30 * 60 * 1000) } },
     orderBy: { verifiedAt: "desc" },
@@ -125,33 +123,38 @@ router.post("/complete-signup", async (req, res) => {
 
 // مسار مؤقت لإنشاء أول حساب أدمن يدويًا — يُحذف فورًا بعد الاستخدام لأسباب أمنية
 router.get("/bootstrap-admin", async (req, res) => {
-  const { secret, phone, name } = req.query;
+  try {
+    const { secret, phone, name } = req.query;
 
-  if (secret !== "wasla-setup-7f3k9x2m") {
-    return res.status(403).json({ error: "غير مسموح" });
+    if (secret !== "wasla-setup-7f3k9x2m") {
+      return res.status(403).json({ error: "غير مسموح" });
+    }
+
+    const digits = String(phone || "").replace(/\D/g, "");
+    if (!digits) {
+      return res.status(400).json({ error: "رقم الهاتف مطلوب" });
+    }
+
+    const existing = await prisma.user.findUnique({ where: { whatsappPhone: digits } });
+    if (existing) {
+      return res.status(409).json({ error: "هذا الرقم مسجّل مسبقًا" });
+    }
+
+    const user = await prisma.user.create({
+      data: {
+        whatsappPhone: digits,
+        name: name || "Admin",
+        documentsVerified: true,
+        role: "ADMIN",
+      },
+    });
+
+    const token = issueToken(user.id);
+    res.json({ ok: true, token, user: { id: user.id, name: user.name, whatsappPhone: user.whatsappPhone, role: user.role } });
+  } catch (err) {
+    console.error("bootstrap-admin error:", err);
+    res.status(500).json({ error: "حدث خطأ", details: err.message });
   }
-
-  const digits = String(phone || "").replace(/\D/g, "");
-  if (!digits) {
-    return res.status(400).json({ error: "رقم الهاتف مطلوب" });
-  }
-
-  const existing = await prisma.user.findUnique({ where: { whatsappPhone: digits } });
-  if (existing) {
-    return res.status(409).json({ error: "هذا الرقم مسجّل مسبقًا" });
-  }
-
-  const user = await prisma.user.create({
-    data: {
-      whatsappPhone: digits,
-      name: name || "Admin",
-      documentsVerified: true,
-      role: "ADMIN",
-    },
-  });
-
-  const token = issueToken(user.id);
-  res.json({ ok: true, token, user: { id: user.id, name: user.name, whatsappPhone: user.whatsappPhone, role: user.role } });
 });
 
 module.exports = router;
