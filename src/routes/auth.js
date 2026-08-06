@@ -7,7 +7,6 @@ const { sendSmsOtp } = require("../lib/sms");
 
 const router = express.Router();
 
-// حماية من إساءة الاستخدام: بحد أقصى 5 طلبات رمز تحقق لكل رقم كل 15 دقيقة
 const otpRequestLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 5,
@@ -16,14 +15,13 @@ const otpRequestLimiter = rateLimit({
 });
 
 function generateOtp() {
-  return String(Math.floor(1000 + Math.random() * 9000)); // رمز من 4 أرقام
+  return String(Math.floor(1000 + Math.random() * 9000));
 }
 
 function issueToken(userId) {
   return jwt.sign({ userId }, process.env.JWT_SECRET, { expiresIn: "30d" });
 }
 
-// POST /auth/request-otp  { phone, purpose: "SIGNUP" | "LOGIN" }
 router.post("/request-otp", otpRequestLimiter, async (req, res) => {
   const { phone, purpose = "SIGNUP" } = req.body;
 
@@ -42,18 +40,17 @@ router.post("/request-otp", otpRequestLimiter, async (req, res) => {
   }
 
   const code = generateOtp();
-  const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // صالح 5 دقائق
+  const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
 
   await prisma.otpCode.create({
     data: { phone: digits, code, purpose, expiresAt, userId: existingUser?.id },
   });
 
-  await sendSmsOtp(digits, code); // الاستخدام الوحيد لإرسال SMS بكامل التطبيق — لحظة فتح الحساب فقط
+  await sendSmsOtp(digits, code);
 
   res.json({ ok: true, expiresInSeconds: 300 });
 });
 
-// POST /auth/verify-otp  { phone, code, purpose }
 router.post("/verify-otp", async (req, res) => {
   const { phone, code, purpose = "SIGNUP" } = req.body;
   const digits = String(phone || "").replace(/\D/g, "");
@@ -78,7 +75,6 @@ router.post("/verify-otp", async (req, res) => {
   res.json({ ok: true, phoneVerified: true });
 });
 
-// POST /auth/complete-signup  { phone, name, paymentAccounts: [{methodId, phone}], kycDocumentUrl }
 router.post("/complete-signup", async (req, res) => {
   const { phone, name, paymentAccounts, kycDocumentUrl } = req.body;
   const digits = String(phone || "").replace(/\D/g, "");
@@ -119,42 +115,6 @@ router.post("/complete-signup", async (req, res) => {
 
   const token = issueToken(user.id);
   res.status(201).json({ ok: true, token, user: { id: user.id, name: user.name, whatsappPhone: user.whatsappPhone } });
-});
-
-// مسار مؤقت لإنشاء أول حساب أدمن يدويًا — يُحذف فورًا بعد الاستخدام لأسباب أمنية
-router.get("/bootstrap-admin", async (req, res) => {
-  try {
-    const { secret, phone, name } = req.query;
-
-    if (secret !== "wasla-setup-7f3k9x2m") {
-      return res.status(403).json({ error: "غير مسموح" });
-    }
-
-    const digits = String(phone || "").replace(/\D/g, "");
-    if (!digits) {
-      return res.status(400).json({ error: "رقم الهاتف مطلوب" });
-    }
-
-    const existing = await prisma.user.findUnique({ where: { whatsappPhone: digits } });
-    if (existing) {
-      return res.status(409).json({ error: "هذا الرقم مسجّل مسبقًا" });
-    }
-
-    const user = await prisma.user.create({
-      data: {
-        whatsappPhone: digits,
-        name: name || "Admin",
-        documentsVerified: true,
-        role: "ADMIN",
-      },
-    });
-
-    const token = issueToken(user.id);
-    res.json({ ok: true, token, user: { id: user.id, name: user.name, whatsappPhone: user.whatsappPhone, role: user.role } });
-  } catch (err) {
-    console.error("bootstrap-admin error:", err);
-    res.status(500).json({ error: "حدث خطأ", details: err.message });
-  }
 });
 
 module.exports = router;
